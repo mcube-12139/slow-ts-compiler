@@ -1,6 +1,6 @@
-[program] = null
 [program] = [statement_list]
 
+[statement_list] = null
 [statement_list] = [statement_block][statement_list]
 [statement_list] = [statement][statement_list]
 
@@ -8,9 +8,20 @@
 
 [statement] = ';'
 [statement] = [expression] ';'
+[statement] = [let_statement]
 
-[expression] = [string_literal]
-[expression] = [identifier][function_call_or_null]
+[expression] = [expression_atom][function_call_or_null]
+
+[expression_atom] = [string_literal]
+[expression_atom] = [identifier]
+
+[let_statement] = [let][identifier][type_description][initialization] ';'
+
+[type_description] = null
+[type_description] = ':' [identifier]
+
+[initialization] = null
+[initialization] = '=' [expression]
 
 [function_call_or_null] = null
 [function_call_or_null] = '(' [parameter_list] ')'
