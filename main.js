@@ -33,7 +33,8 @@ const TokenType = {
     END: 0,
     IDENTIFIER: 1,
     CHAR: 2,
-    STRING_LITERAL: 3
+    STRING_LITERAL: 3,
+    NUMBER_LITERAL: 4
 };
 
 const SymbolType = {
@@ -104,6 +105,7 @@ class StsCompiler {
         this.symbol = null;
         this.charValue = "";
         this.stringLiteral = "";
+        this.numberLiteral = 0;
         this.nowAddress = -1;
 
         /**
@@ -125,6 +127,7 @@ class StsCompiler {
         this.symbol = null;
         this.charValue = "";
         this.stringLiteral = "";
+        this.numberLiteral = 0;
         this.nowAddress = -1;
 
         this.symbolMap.clear();
@@ -209,6 +212,7 @@ class StsCompiler {
                     this.symbol = symbol;
                 }
             } else if (c == 34) {
+                // '"'
                 this.tokenType = TokenType.STRING_LITERAL;
                 ++this.pos;
                 const start = this.pos;
@@ -226,6 +230,63 @@ class StsCompiler {
 
                 this.stringLiteral = this.source.substring(start, this.pos);
                 ++this.pos;
+            } else if (c == 46 || (c >= 48 && c <= 57)) {
+                // 数字字面量
+                this.tokenType = TokenType.NUMBER_LITERAL;
+
+                let beforePoint = true;
+                let unitAfterPoint = 1;
+                let radix = 10;
+                let result = 0;
+
+                if (c == 48) {
+                    // '0'
+                    ++this.pos;
+                    c = this.source.charCodeAt(this.pos);
+                    if (c == 46) {
+                        // '.'
+                        ++this.pos;
+                        beforePoint = false;
+                    } else if (c == 120) {
+                        // 'x'
+                        ++this.pos;
+                        radix = 16;
+                    } else if (c == 98) {
+                        // 'b'
+                        ++this.pos;
+                        radix = 2;
+                    } else if (c >= 48 && c <= 55) {
+                        // '0'-'7'
+                        radix = 8;
+                    }
+                }
+                for ( ; ; ) {
+                    c = this.source.charCodeAt(this.pos);
+                    if (c >= 48 && c < 48 + radix) {
+                        // 当前进制合法数字
+                        const num = c - 48;
+                        if (beforePoint) {
+                            result = radix * result + num;
+                        } else {
+                            // 小数只能是十进制
+                            unitAfterPoint *= 0.1;
+                            result += unitAfterPoint * num;
+                        }
+                        ++this.pos;
+                    } else if (c == 46) {
+                        if (radix == 10 && beforePoint) {
+                            // 十进制小数点
+                            beforePoint = false;
+                            ++this.pos;
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+
+                this.numberLiteral = result;
             } else {
                 this.tokenType = TokenType.CHAR;
                 this.charValue = this.source[this.pos];
