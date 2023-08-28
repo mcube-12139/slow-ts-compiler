@@ -1,0 +1,22 @@
+[program] = null
+[program] = [statement_list]
+
+[statement_list] = [statement_block][statement_list]
+[statement_list] = [statement][statement_list]
+
+[statement_block] = '{' [statement_list] '}'
+
+[statement] = ';'
+[statement] = [expression] ';'
+
+[expression] = [string_literal]
+[expression] = [identifier][function_call_or_null]
+
+[function_call_or_null] = null
+[function_call_or_null] = '(' [parameter_list] ')'
+
+[parameter_list] = null
+[parameter_list] = [expression][parameter_list_left]
+
+[parameter_list_left] = null
+[parameter_list_left] = ','[parameter_list]
