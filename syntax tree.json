@@ -1,0 +1,177 @@
+{
+    "type": "program",
+    "children": [
+        {
+            "type": "letStatement",
+            "children": [
+                {
+                    "type": "keyword",
+                    "keywordType": "let"
+                },
+                {
+                    "type": "identifier",
+                    "name": "a"
+                },
+                {
+                    "type": "typeDescription",
+                    "children": [
+                        {
+                            "type": "keyword",
+                            "keywordType": "string"
+                        }
+                    ]
+                },
+                {
+                    "type": "expression",
+                    "children": [
+                        {
+                            "type": "stringLiteral",
+                            "value": "Hello "
+                        },
+                        {
+                            "type": "operator",
+                            "operatorType": "+"
+                        },
+                        {
+                            "type": "identifier",
+                            "name": "get_string"
+                        },
+                        {
+                            "type": "operator",
+                            "operatorType": "("
+                        },
+                        {
+                            "type": "operator",
+                            "operatorType": ")"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "letStatement",
+            "children": [
+                {
+                    "type": "keyword",
+                    "keywordType": "let"
+                },
+                {
+                    "type": "identifier",
+                    "name": "b"
+                },
+                {
+                    "type": "expression",
+                    "children": [
+                        {
+                            "type": "numberLiteral",
+                            "value": 114
+                        },
+                        {
+                            "type": "operator",
+                            "operatorType": "*"
+                        },
+                        {
+                            "type": "numberLiteral",
+                            "value": 514
+                        },
+                        {
+                            "type": "operator",
+                            "operatorType": "+"
+                        },
+                        {
+                            "type": "numberLiteral",
+                            "value": 1
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "expressionStatement",
+            "children": [
+                {
+                    "type": "expression",
+                    "children": [
+                        {
+                            "type": "identifier",
+                            "name": "b"
+                        },
+                        {
+                            "type": "operator",
+                            "operatorType": "--"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "statementBlock",
+            "children": [
+                {
+                    "type": "letStatement",
+                    "children": [
+                        {
+                            "type": "keyword",
+                            "keywordType": "let"
+                        },
+                        {
+                            "type": "identifier",
+                            "name": "c"
+                        },
+                        {
+                            "type": "expression",
+                            "children": [
+                                {
+                                    "type": "identifier",
+                                    "name": "b"
+                                },
+                                {
+                                    "type": "operator",
+                                    "operatorType": "+"
+                                },
+                                {
+                                    "type": "numberLiteral",
+                                    "value": 1919
+                                }
+                            ]
+                        }
+                    ]
+                },
+                {
+                    "type": "expressionStatement",
+                    "children": [
+                        {
+                            "type": "expression",
+                            "children": [
+                                {
+                                    "type": "identifier",
+                                    "name": "show_message"
+                                },
+                                {
+                                    "type": "operator",
+                                    "operatorType": "("
+                                },
+                                {
+                                    "type": "identifier",
+                                    "name": "a"
+                                },
+                                {
+                                    "type": "operator",
+                                    "operatorType": "+"
+                                },
+                                {
+                                    "type": "identifier",
+                                    "name": "c"
+                                },
+                                {
+                                    "type": "operator",
+                                    "operatorType": ")"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}

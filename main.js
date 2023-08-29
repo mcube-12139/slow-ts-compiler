@@ -6,6 +6,7 @@
  */
 
 const TokenType = {
+    KEYWORD: 0,
     IDENTIFIER: 0,
     STRING_LITERAL: 0,
     NUMBER_LITERAL: 0,
@@ -14,6 +15,7 @@ const TokenType = {
     END: 0,
 };
 initEnum(TokenType);
+addEnumOption(TokenType, "KEYWORD");
 addEnumOption(TokenType, "IDENTIFIER");
 addEnumOption(TokenType, "STRING_LITERAL");
 addEnumOption(TokenType, "NUMBER_LITERAL");
@@ -104,8 +106,36 @@ const StsKeyword = {
     TRUE: 7,
     FALSE: 8,
     CFUN: 9,
-    ANY: 10
+    ANY: 10,
+
+    codeMap: new Map(),
+    nameMap: [],
+    codeOf(name) {
+        if (this.codeMap.has(name)) {
+            return this.codeMap.get(name);
+        }
+        return null;
+    },
+    stringify(keyword) {
+        return this.nameMap[keyword];
+    },
+
+    setCodeName(code, name) {
+        this.nameMap[code] = name;
+        this.codeMap.set(name, code);
+    }
 };
+StsKeyword.setCodeName(StsKeyword.LET, "let");
+StsKeyword.setCodeName(StsKeyword.NUMBER, "number");
+StsKeyword.setCodeName(StsKeyword.STRING, "string");
+StsKeyword.setCodeName(StsKeyword.BOOLEAN, "boolean");
+StsKeyword.setCodeName(StsKeyword.ARRAY, "array");
+StsKeyword.setCodeName(StsKeyword.OBJECT, "object");
+StsKeyword.setCodeName(StsKeyword.UNDEFINED, "undefined");
+StsKeyword.setCodeName(StsKeyword.TRUE, "true");
+StsKeyword.setCodeName(StsKeyword.FALSE, "false");
+StsKeyword.setCodeName(StsKeyword.CFUN, "cfunction");
+StsKeyword.setCodeName(StsKeyword.ANY, "any");
 
 class StsCompiler {
     constructor() {
@@ -119,10 +149,8 @@ class StsCompiler {
         this.tokenType = TokenType.IDENTIFIER;
         this.exprValueType = StsValueType.NUMBER;
         this.operatorStack = [];
-        /**
-         * @type {StsSymbol?}
-         */
-        this.symbol = null;
+        this.identifierName = "";
+        this.keyword = StsKeyword.UNDEFINED;
         this.charValue = "";
         this.compositeType = StsCompositeToken.INC;
         this.stringLiteral = "";
@@ -148,7 +176,8 @@ class StsCompiler {
         this.tokenType = TokenType.IDENTIFIER;
         this.exprValueType = StsValueType.NUMBER;
         this.operatorStack = [StsOperator.LOWEST];
-        this.symbol = null;
+        this.identifierName = "";
+        this.keyword = StsKeyword.UNDEFINED;
         this.charValue = "";
         this.compositeType = StsCompositeToken.INC;
         this.stringLiteral = "";
@@ -172,11 +201,13 @@ class StsCompiler {
         this.symbolMap.set("false", StsSymbol.newKeyword(StsKeyword.FALSE));
 
         this.byteCode = new StsByteCode();
+        const syntaxRootNode = StsSyntaxNode.newProgram();
 
         // 读取 statement_list
         this.readToken();
-        this.readStmtList();
+        this.readStmtList(syntaxRootNode);
 
+        console.log(JSON.stringify(syntaxRootNode.getAndChildren()));
         return this.byteCode;
     }
 
@@ -185,7 +216,7 @@ class StsCompiler {
     }
 
     tokenIsKeyword(keyword) {
-        return this.tokenType == TokenType.IDENTIFIER && this.symbol.type == SymbolType.KEYWORD && this.symbol.keyword == keyword;
+        return this.tokenType == TokenType.KEYWORD && this.keyword == keyword;
     }
 
     tokenIsComposite(compType) {
@@ -227,9 +258,8 @@ class StsCompiler {
             (this.charCode >= 65 && this.charCode <= 90)
         ) {
             // '_' 'a'-'z' 'A'-'Z' 标识符
-            this.tokenType = TokenType.IDENTIFIER;
             const start = this.pos;
-            for ( ; ; ) {
+            for (; ;) {
                 this.readChar();
                 if (this.charCode == null) {
                     // 源码用完，打破
@@ -248,19 +278,20 @@ class StsCompiler {
             }
 
             const idenName = this.source.substring(start, this.pos);
-            if (this.symbolMap.has(idenName)) {
-                this.symbol = this.symbolMap.get(idenName);
+            const keywordCode = StsKeyword.codeOf(idenName);
+            if (keywordCode == null) {
+                this.tokenType = TokenType.IDENTIFIER;
+                this.identifierName = idenName;
             } else {
-                const symbol = StsSymbol.newUndefined();
-                this.symbolMap.set(idenName, symbol);
-                this.symbol = symbol;
+                this.tokenType = TokenType.KEYWORD;
+                this.keyword = keywordCode;
             }
         } else if (this.charCode == 34) {
             // '"'
             this.tokenType = TokenType.STRING_LITERAL;
             this.readChar();
             const start = this.pos;
-            for ( ; ; ) {
+            for (; ;) {
                 if (this.charCode == null) {
                     this.abort("Expect \"");
                 }
@@ -302,7 +333,7 @@ class StsCompiler {
                     radix = 8;
                 }
             }
-            for ( ; ; ) {
+            for (; ;) {
                 if (this.charCode == null) {
                     break;
                 }
@@ -389,43 +420,53 @@ class StsCompiler {
         }
     }
 
-    readStmtList() {
+    readStmtList(parentNode) {
         if (this.tokenIsChar("{")) {
             // '{' -> [statement_block][statement_list]
             // 读取 statement_block
+            const stmtBlockNode = StsSyntaxNode.newStatementBlock();
+
             this.readToken();
-            this.readStmtList();
+            this.readStmtList(stmtBlockNode);
+            parentNode.pushChild(stmtBlockNode);
+
             if (!this.tokenIsChar("}")) {
                 throw "Expect '}'";
             }
             this.readToken();
 
-            this.readStmtList();
+            this.readStmtList(parentNode);
         } else if (
             this.tokenIsChar(";") ||
             this.tokenIsComposite(StsCompositeToken.INC) ||
             this.tokenIsComposite(StsCompositeToken.DEC) ||
             this.tokenType == TokenType.STRING_LITERAL ||
             this.tokenType == TokenType.NUMBER_LITERAL ||
+            this.tokenType == TokenType.KEYWORD ||
             this.tokenType == TokenType.IDENTIFIER
         ) {
-            // ';' | '++' | '--' | string_literal | number_literal | identifier -> [statement][statement_list]
+            // ';' | '++' | '--' | string_literal | number_literal | [true] | [false] | identifier | [let] -> [statement][statement_list]
             // 读取 statement
             if (this.tokenIsChar(";")) {
                 // ';' -> ';'
                 // do nothing
+                parentNode.pushChild(StsSyntaxNode.newEmptyStatement());
+
                 this.readToken();
             } else if (this.tokenIsKeyword(StsKeyword.LET)) {
                 // [let] -> [let_statement]
                 // 读取 let_statement
+                const letStmtNode = StsSyntaxNode.newLetStatement();
+                
+                letStmtNode.pushChild(StsSyntaxNode.newKeyword(StsKeyword.LET));
                 this.readToken();
                 if (this.tokenType != TokenType.IDENTIFIER) {
                     this.abort("Expect [identifier]");
                 }
-                if (this.symbol.type != SymbolType.UNDEFINED) {
-                    this.abort("Identifier name is already used");
-                }
-                const symbol = this.symbol;
+                // if (this.symbol.type != SymbolType.UNDEFINED) {
+                //     this.abort("Identifier name is already used");
+                // }
+                letStmtNode.pushChild(StsSyntaxNode.newIdentifier(this.identifierName));
 
                 this.readToken();
                 let typeDescribed = false;
@@ -433,25 +474,28 @@ class StsCompiler {
                 let initialized = false;
                 if (this.tokenIsChar(":")) {
                     // ':' -> [type_description]
+                    const typeDescNode = StsSyntaxNode.newTypeDescription();
                     typeDescribed = true;
 
                     this.readToken();
-                    if (this.tokenType != TokenType.IDENTIFIER) {
-                        this.abort("Expect [identifier]");
-                    }
-                    if (this.symbol.type != SymbolType.KEYWORD) {
+                    if (this.tokenType != TokenType.KEYWORD) {
                         this.abort("Expect [keyword]");
                     }
 
                     if (this.tokenIsKeyword(StsKeyword.STRING)) {
                         variableType = StsValueType.STRING;
+                        typeDescNode.pushChild(StsSyntaxNode.newKeyword(this.keyword));
                     } else if (this.tokenIsKeyword(StsKeyword.NUMBER)) {
                         variableType = StsValueType.NUMBER;
+                        typeDescNode.pushChild(StsSyntaxNode.newKeyword(this.keyword));
                     } else if (this.tokenIsKeyword(StsKeyword.BOOLEAN)) {
                         variableType = StsValueType.BOOLEAN;
+                        typeDescNode.pushChild(StsSyntaxNode.newKeyword(this.keyword));
                     } else if (this.tokenIsKeyword(StsKeyword.UNDEFINED)) {
                         variableType = StsValueType.UNDEFINED;
+                        typeDescNode.pushChild(StsSyntaxNode.newKeyword(this.keyword));
                     }
+                    letStmtNode.pushChild(typeDescNode);
 
                     this.readToken();
                 }
@@ -460,11 +504,15 @@ class StsCompiler {
                     initialized = true;
 
                     this.readToken();
-                    this.readExpr();
-                    if (typeDescribed && this.exprValueType != variableType) {
-                        this.abort("Type dismatch");
-                    }
-                    variableType = this.exprValueType;
+
+                    const exprNode = StsSyntaxNode.newExpression();
+                    this.readExpr(exprNode);
+                    letStmtNode.pushChild(exprNode);
+
+                    // if (typeDescribed && this.exprValueType != variableType) {
+                    //     this.abort("Type dismatch");
+                    // }
+                    // variableType = this.exprValueType;
                 }
                 if (this.tokenIsChar(";")) {
                     // ';' -> ';'
@@ -472,75 +520,89 @@ class StsCompiler {
                 } else {
                     this.abort("Expect ';'");
                 }
+                parentNode.pushChild(letStmtNode);
 
-                const address = this.nextAddress();
-                symbol.type = SymbolType.VARIABLE;
-                symbol.valueType = variableType;
-                symbol.address = address;
-                if (variableType == StsValueType.STRING) {
-                    if (initialized) {
-                        this.byteCode.pushAction(StsAction.STORES);
-                        this.byteCode.pushNumberCode(address);
-                    }
-                } else {
-                    if (initialized) {
-                        this.byteCode.pushAction(StsAction.STORE);
-                        this.byteCode.pushNumberCode(address);
-                    }
-                }
+                // const address = this.nextAddress();
+                // symbol.type = SymbolType.VARIABLE;
+                // symbol.valueType = variableType;
+                // symbol.address = address;
+                // if (variableType == StsValueType.STRING) {
+                //     if (initialized) {
+                //         this.byteCode.pushAction(StsAction.STORES);
+                //         this.byteCode.pushNumberCode(address);
+                //     }
+                // } else {
+                //     if (initialized) {
+                //         this.byteCode.pushAction(StsAction.STORE);
+                //         this.byteCode.pushNumberCode(address);
+                //     }
+                // }
             } else {
                 // '++' | '--' | string_literal | number_literal | identifier -> [expression] ';'
-                this.readExpr();
+                const exprStmtNode = StsSyntaxNode.newExpressionStatement();
+                const exprNode = StsSyntaxNode.newExpression();
+
+                this.readExpr(exprNode);
+                exprStmtNode.pushChild(exprNode);
+
                 if (!this.tokenIsChar(";")) {
                     this.abort("Expect ';'");
                 }
                 this.readToken();
+
+                parentNode.pushChild(exprStmtNode);
             }
 
-            this.readStmtList();
+            this.readStmtList(parentNode);
         } else {
             // null
             // do nothing
-
-            return;
         }
     }
 
-    readExpr() {
+    readExpr(parentNode) {
         if (this.tokenIsComposite(StsCompositeToken.INC)) {
             // '++' -> '++' [locatable]
+            parentNode.pushChild(StsSyntaxNode.newOperator(StsOperator.LEFT_INCREASE));
+
             this.readToken();
             if (this.tokenType != TokenType.IDENTIFIER) {
                 this.abort("Expect [identifier]");
             }
-            if (this.symbol.type != SymbolType.VARIABLE) {
-                this.abort("Expect variable");
-            }
-            if (this.symbol.valueType != StsValueType.NUMBER) {
-                this.abort("This type cannot ++");
-            }
-            this.byteCode.pushAction(StsAction.INC);
-            this.byteCode.pushNumberCode(this.symbol.address);
-            this.byteCode.pushAction(StsAction.LOAD);
-            this.byteCode.pushNumberCode(this.symbol.address);
+            // if (this.symbol.type != SymbolType.VARIABLE) {
+            //     this.abort("Expect variable");
+            // }
+            // if (this.symbol.valueType != StsValueType.NUMBER) {
+            //     this.abort("This type cannot ++");
+            // }
+            parentNode.pushChild(StsSyntaxNode.newIdentifier(this.identifierName));
+
+            // this.byteCode.pushAction(StsAction.INC);
+            // this.byteCode.pushNumberCode(this.symbol.address);
+            // this.byteCode.pushAction(StsAction.LOAD);
+            // this.byteCode.pushNumberCode(this.symbol.address);
 
             this.readToken();
         } else if (this.tokenIsComposite(StsCompositeToken.DEC)) {
             // '--' -> '--' [locatable]
+            parentNode.pushChild(StsSyntaxNode.newOperator(StsOperator.LEFT_DECREASE));
+
             this.readToken();
             if (this.tokenType != TokenType.IDENTIFIER) {
                 this.abort("Expect [identifier]");
             }
-            if (this.symbol.type != SymbolType.VARIABLE) {
-                this.abort("Expect variable");
-            }
-            if (this.symbol.valueType != StsValueType.NUMBER) {
-                this.abort("This type cannot --");
-            }
-            this.byteCode.pushAction(StsAction.DEC);
-            this.byteCode.pushNumberCode(this.symbol.address);
-            this.byteCode.pushAction(StsAction.LOAD);
-            this.byteCode.pushNumberCode(this.symbol.address);
+            // if (this.symbol.type != SymbolType.VARIABLE) {
+            //     this.abort("Expect variable");
+            // }
+            // if (this.symbol.valueType != StsValueType.NUMBER) {
+            //     this.abort("This type cannot --");
+            // }
+            parentNode.pushChild(StsSyntaxNode.newIdentifier(this.identifierName));
+
+            // this.byteCode.pushAction(StsAction.DEC);
+            // this.byteCode.pushNumberCode(this.symbol.address);
+            // this.byteCode.pushAction(StsAction.LOAD);
+            // this.byteCode.pushNumberCode(this.symbol.address);
 
             this.readToken();
         } else if (
@@ -551,80 +613,96 @@ class StsCompiler {
         ) {
             // [string_literal] | [number_literal] | [true] | [false] -> [literal][operator_or_null]
             if (this.tokenType == TokenType.STRING_LITERAL) {
-                this.byteCode.pushAction(StsAction.MOVS);
-                this.byteCode.pushStringCode(this.stringLiteral);
+                parentNode.pushChild(StsSyntaxNode.newStringLiteral(this.stringLiteral));
 
-                this.exprValueType = StsValueType.STRING;
+                // this.byteCode.pushAction(StsAction.MOVS);
+                // this.byteCode.pushStringCode(this.stringLiteral);
+
+                // this.exprValueType = StsValueType.STRING;
             } else if (this.tokenType == TokenType.NUMBER_LITERAL) {
-                this.byteCode.pushAction(StsAction.MOV);
-                this.byteCode.pushNumberCode(this.numberLiteral);
+                parentNode.pushChild(StsSyntaxNode.newNumberLiteral(this.numberLiteral));
 
-                this.exprValueType = StsValueType.NUMBER;
+                // this.byteCode.pushAction(StsAction.MOV);
+                // this.byteCode.pushNumberCode(this.numberLiteral);
+
+                // this.exprValueType = StsValueType.NUMBER;
             } else if (this.tokenIsKeyword(StsKeyword.TRUE)) {
-                this.byteCode.pushAction(StsAction.MOV);
-                this.byteCode.pushNumberCode(1);
+                parentNode.pushChild(StsSyntaxNode.newKeyword(StsKeyword.TRUE));
 
-                this.exprValueType = StsValueType.BOOLEAN;
+                // this.byteCode.pushAction(StsAction.MOV);
+                // this.byteCode.pushNumberCode(1);
+
+                // this.exprValueType = StsValueType.BOOLEAN;
             } else if (this.tokenIsKeyword(StsKeyword.FALSE)) {
-                this.byteCode.pushAction(StsAction.MOV);
-                this.byteCode.pushNumberCode(0);
+                parentNode.pushChild(StsSyntaxNode.newKeyword(StsKeyword.FALSE));
 
-                this.exprValueType = StsValueType.BOOLEAN;
+                // this.byteCode.pushAction(StsAction.MOV);
+                // this.byteCode.pushNumberCode(0);
+
+                // this.exprValueType = StsValueType.BOOLEAN;
             }
             this.readToken();
 
             // 读取 operator_or_null
-            this.readOperatorOrNull(null);
+            this.readOperatorOrNull(parentNode);
         } else if (this.tokenType == TokenType.IDENTIFIER) {
             // [identifier] -> [locatable][loperator_or_null][operator_or_null]
+            parentNode.pushChild(StsSyntaxNode.newIdentifier(this.identifierName));
+
             let funcReturnType;
-            if (this.symbol.type != SymbolType.VARIABLE) {
-                this.abort("Expect variable");
-            }
-            const address = this.symbol.address;
-            if (this.symbol.valueType == StsValueType.STRING) {
-                this.byteCode.pushAction(StsAction.LOADS);
-                this.byteCode.pushNumberCode(this.symbol.address);
+            // if (this.symbol.type != SymbolType.VARIABLE) {
+            //     this.abort("Expect variable");
+            // }
+            // const address = this.symbol.address;
+            // if (this.symbol.valueType == StsValueType.STRING) {
+            //     this.byteCode.pushAction(StsAction.LOADS);
+            //     this.byteCode.pushNumberCode(this.symbol.address);
 
-                this.exprValueType = StsValueType.STRING;
-            } else if (this.symbol.valueType == StsValueType.NUMBER) {
-                this.byteCode.pushAction(StsAction.LOAD);
-                this.byteCode.pushNumberCode(this.symbol.address);
+            //     this.exprValueType = StsValueType.STRING;
+            // } else if (this.symbol.valueType == StsValueType.NUMBER) {
+            //     this.byteCode.pushAction(StsAction.LOAD);
+            //     this.byteCode.pushNumberCode(this.symbol.address);
 
-                this.exprValueType = StsValueType.NUMBER;
-            } else if (this.symbol.valueType == StsValueType.CFUN) {
-                this.byteCode.pushAction(StsAction.MOV);
-                this.byteCode.pushFuncCode(this.symbol.code);
+            //     this.exprValueType = StsValueType.NUMBER;
+            // } else if (this.symbol.valueType == StsValueType.CFUN) {
+            //     this.byteCode.pushAction(StsAction.MOV);
+            //     this.byteCode.pushFuncCode(this.symbol.code);
 
-                this.exprValueType = StsValueType.CFUN;
-                funcReturnType = this.symbol.returnType;
-            }
+            //     this.exprValueType = StsValueType.CFUN;
+            //     funcReturnType = this.symbol.returnType;
+            // }
             this.readToken();
 
-            this.readLOperatorOrNull(address);
-            this.readOperatorOrNull(funcReturnType);
+            this.readLOperatorOrNull(parentNode);
+            this.readOperatorOrNull(parentNode);
         } else {
             this.abort("Expect expression");
         }
+
+        return parentNode;
     }
 
-    readLOperatorOrNull(addr) {
+    readLOperatorOrNull(parentNode) {
         if (this.tokenIsComposite(StsCompositeToken.INC)) {
             // '++'
-            if (this.exprValueType != StsValueType.NUMBER) {
-                this.abort("This type of variable cannot ++");
-            }
-            this.byteCode.pushAction(StsAction.INC);
-            this.byteCode.pushNumberCode(addr);
+            parentNode.pushChild(StsSyntaxNode.newOperator(StsOperator.RIGHT_INCREASE));
+
+            // if (this.exprValueType != StsValueType.NUMBER) {
+            //     this.abort("This type of variable cannot ++");
+            // }
+            // this.byteCode.pushAction(StsAction.INC);
+            // this.byteCode.pushNumberCode(addr);
 
             this.readToken();
         } else if (this.tokenIsComposite(StsCompositeToken.DEC)) {
             // '--'
-            if (this.exprValueType != StsValueType.NUMBER) {
-                this.abort("This type of variable cannot --");
-            }
-            this.byteCode.pushAction(StsAction.DEC);
-            this.byteCode.pushNumberCode(addr);
+            parentNode.pushChild(StsSyntaxNode.newOperator(StsOperator.RIGHT_DECREASE));
+
+            // if (this.exprValueType != StsValueType.NUMBER) {
+            //     this.abort("This type of variable cannot --");
+            // }
+            // this.byteCode.pushAction(StsAction.DEC);
+            // this.byteCode.pushNumberCode(addr);
 
             this.readToken();
         } else {
@@ -632,131 +710,156 @@ class StsCompiler {
         }
     }
 
-    readOperatorOrNull(funcReturnType) {
+    readOperatorOrNull(parentNode) {
         if (this.tokenIsChar("(")) {
             // '(' -> '(' [parameter_list] ')'
-            if (this.exprValueType != StsValueType.CFUN) {
-                this.abort("Expect functionc");
-            }
-            this.byteCode.pushAction(StsAction.PUSH);
+            parentNode.pushChild(StsSyntaxNode.newOperator(StsOperator.LEFT_FUN_CALL));
+
+            // if (this.exprValueType != StsValueType.CFUN) {
+            //     this.abort("Expect functionc");
+            // }
+            // this.byteCode.pushAction(StsAction.PUSH);
 
             this.readToken();
             let paramCount = 0;
             if (this.tokenType == TokenType.STRING_LITERAL || this.tokenType == TokenType.IDENTIFIER) {
                 // [string_literal] | [identifier] -> [parameter_list]
-                paramCount = this.readParamList();
+                paramCount = this.readParamList(parentNode);
             }
             if (!this.tokenIsChar(")")) {
                 throw "Expect ')'";
             }
+            parentNode.pushChild(StsSyntaxNode.newOperator(StsOperator.RIGHT_FUN_CALL));
             this.readToken();
 
-            this.byteCode.pushAction(StsAction.CALLC);
-            this.byteCode.pushNumberCode(paramCount);
+            // this.byteCode.pushAction(StsAction.CALLC);
+            // this.byteCode.pushNumberCode(paramCount);
 
-            this.exprValueType = funcReturnType;
+            // this.exprValueType = funcReturnType;
         } else if (this.tokenIsChar("+")) {
             // '+' -> '+' [expression]
-            const lvalueType = this.exprValueType;
-            if (lvalueType == StsValueType.STRING) {
-                this.byteCode.pushAction(StsAction.PUSHS);
-            } else if (lvalueType == StsValueType.NUMBER) {
-                this.byteCode.pushAction(StsAction.PUSH);
-            } else {
-                this.abort("This type cannot +");
-            }
+            parentNode.pushChild(StsSyntaxNode.newOperator(StsOperator.ADD));
+
+            // const lvalueType = this.exprValueType;
+            // if (lvalueType == StsValueType.STRING) {
+            //     this.byteCode.pushAction(StsAction.PUSHS);
+            // } else if (lvalueType == StsValueType.NUMBER) {
+            //     this.byteCode.pushAction(StsAction.PUSH);
+            // } else {
+            //     this.abort("This type cannot +");
+            // }
 
             this.readToken();
-            this.readExpr();
-            const rvalueType = this.exprValueType;
-            if (lvalueType == StsValueType.NUMBER && rvalueType == StsValueType.NUMBER) {
-                this.byteCode.pushAction(StsAction.ADD);
-            } else if (lvalueType == StsValueType.STRING && rvalueType == StsValueType.STRING) {
-                this.byteCode.pushAction(StsAction.ADDS);
-            } else {
-                this.abort("These types cannot +");
-            }
+            this.readExpr(parentNode);
+
+            // const rvalueType = this.exprValueType;
+            // if (lvalueType == StsValueType.NUMBER && rvalueType == StsValueType.NUMBER) {
+            //     this.byteCode.pushAction(StsAction.ADD);
+            // } else if (lvalueType == StsValueType.STRING && rvalueType == StsValueType.STRING) {
+            //     this.byteCode.pushAction(StsAction.ADDS);
+            // } else {
+            //     this.abort("These types cannot +");
+            // }
         } else if (this.tokenIsChar("-")) {
             // '-' -> '-' [expression]
-            if (this.exprValueType == StsValueType.NUMBER) {
-                this.byteCode.pushAction(StsAction.PUSH);
-            } else {
-                this.abort("This type cannot -");
-            }
+            parentNode.pushChild(StsSyntaxNode.newOperator(StsOperator.SUBTRACT));
+            // if (this.exprValueType == StsValueType.NUMBER) {
+            //     this.byteCode.pushAction(StsAction.PUSH);
+            // } else {
+            //     this.abort("This type cannot -");
+            // }
 
             this.readToken();
-            this.readExpr();
-            if (this.exprValueType == StsValueType.NUMBER) {
-                this.byteCode.pushAction(StsAction.SUB);
-            } else {
-                this.abort("These types cannot -");
-            }
+            this.readExpr(parentNode);
+
+            // if (this.exprValueType == StsValueType.NUMBER) {
+            //     this.byteCode.pushAction(StsAction.SUB);
+            // } else {
+            //     this.abort("These types cannot -");
+            // }
         } else if (this.tokenIsChar("*")) {
             // '*' -> '*' [expression]
-            if (this.exprValueType == StsValueType.NUMBER) {
-                this.byteCode.pushAction(StsAction.PUSH);
-            } else {
-                this.abort("This type cannot *");
-            }
+            parentNode.pushChild(StsSyntaxNode.newOperator(StsOperator.MULTIPLY));
+
+            // if (this.exprValueType == StsValueType.NUMBER) {
+            //     this.byteCode.pushAction(StsAction.PUSH);
+            // } else {
+            //     this.abort("This type cannot *");
+            // }
 
             this.readToken();
-            this.readExpr();
-            if (this.exprValueType == StsValueType.NUMBER) {
-                this.byteCode.pushAction(StsAction.MUL);
-            } else {
-                this.abort("These types cannot *");
-            }
+            this.readExpr(parentNode);
+
+            // if (this.exprValueType == StsValueType.NUMBER) {
+            //     this.byteCode.pushAction(StsAction.MUL);
+            // } else {
+            //     this.abort("These types cannot *");
+            // }
         } else if (this.tokenIsChar("/")) {
             // '/' -> '/' [expression]
-            if (this.exprValueType == StsValueType.NUMBER) {
-                this.byteCode.pushAction(StsAction.PUSH);
-            } else {
-                this.abort("This type cannot /");
-            }
+            parentNode.pushChild(StsSyntaxNode.newOperator(StsOperator.DIVIDE));
+
+            // if (this.exprValueType == StsValueType.NUMBER) {
+            //     this.byteCode.pushAction(StsAction.PUSH);
+            // } else {
+            //     this.abort("This type cannot /");
+            // }
 
             this.readToken();
-            this.readExpr();
-            if (this.exprValueType == StsValueType.NUMBER) {
-                this.byteCode.pushAction(StsAction.DIV);
-            } else {
-                this.abort("These types cannot /");
-            }
+            this.readExpr(parentNode);
+
+            // if (this.exprValueType == StsValueType.NUMBER) {
+            //     this.byteCode.pushAction(StsAction.DIV);
+            // } else {
+            //     this.abort("These types cannot /");
+            // }
         } else if (this.tokenIsChar("%")) {
             // '%' -> '%' [expression]
-            if (this.exprValueType == StsValueType.NUMBER) {
-                this.byteCode.pushAction(StsAction.PUSH);
-            } else {
-                this.abort("This type cannot %");
-            }
+            parentNode.pushChild(StsSyntaxNode.newOperator(StsOperator.MOD));
+
+            // if (this.exprValueType == StsValueType.NUMBER) {
+            //     this.byteCode.pushAction(StsAction.PUSH);
+            // } else {
+            //     this.abort("This type cannot %");
+            // }
 
             this.readToken();
-            this.readExpr();
-            if (this.exprValueType == StsValueType.NUMBER) {
-                this.byteCode.pushAction(StsAction.MOD);
-            } else {
-                this.abort("These types cannot %");
-            }
+            this.readExpr(parentNode);
+
+            // if (this.exprValueType == StsValueType.NUMBER) {
+            //     this.byteCode.pushAction(StsAction.MOD);
+            // } else {
+            //     this.abort("These types cannot %");
+            // }
         } else {
             // null
         }
     }
 
-    readParamList() {
+    readParamList(parentNode) {
         let result = 0;
 
-        if (this.tokenType == TokenType.STRING_LITERAL || this.tokenType == TokenType.IDENTIFIER) {
-            // string_literal | identifier -> expression
-            this.readExpr();
+        if (
+            this.tokenIsComposite(StsCompositeToken.INC) ||
+            this.tokenIsComposite(StsCompositeToken.DEC) ||
+            this.tokenType == TokenType.STRING_LITERAL ||
+            this.tokenType == TokenType.NUMBER_LITERAL ||
+            this.tokenIsKeyword(StsKeyword.TRUE) ||
+            this.tokenIsKeyword(StsKeyword.FALSE) ||
+            this.tokenType == TokenType.IDENTIFIER
+        ) {
+            // '++' | '--' | [string_literal] | [number_literal] | [true] | [false] | identifier -> expression
+            this.readExpr(parentNode);
             ++result;
-            if (this.exprValueType == StsValueType.STRING) {
-                this.byteCode.pushAction(StsAction.PUSHS);
-            }
+            // if (this.exprValueType == StsValueType.STRING) {
+            //     this.byteCode.pushAction(StsAction.PUSHS);
+            // }
 
             // 读取 parameter_list_left
             if (this.tokenIsChar(",")) {
                 // ',' -> ','[parameter_list]
                 this.readToken();
-                result += this.readParamList();
+                result += this.readParamList(parentNode);
             } else {
                 // null
                 // do nothing
@@ -773,7 +876,7 @@ class StsCompiler {
         if (this.tokenType == TokenType.CHAR) {
             return this.charValue;
         } else if (this.tokenType == TokenType.IDENTIFIER) {
-            return this.symbol;
+            return this.identifierName;
         } else if (this.tokenType == TokenType.STRING_LITERAL) {
             return `"${this.stringLiteral}"`;
         } else if (this.tokenType == TokenType.NUMBER_LITERAL) {
@@ -798,12 +901,12 @@ class StsByteCode {
     stringify() {
         let result = "";
 
-        for (let i = 0; i < this.data.length; ) {
+        for (let i = 0; i < this.data.length;) {
             let unit = this.data[i];
-            
+
             result += StsByteCode.stringifyAction(unit.code);
             ++i;
-            for ( ; i < this.data.length; ) {
+            for (; i < this.data.length;) {
                 unit = this.data[i];
                 if (unit.type == StsByteCodeType.ACTION) {
                     break;
@@ -959,6 +1062,196 @@ class StsSymbol {
     }
 }
 
+const StsSyntaxNodeType = {
+    PROGRAM: 0,
+    STATEMENT_LIST: 0,
+    STATEMENT_BLOCK: 0,
+    EMPTY_STATEMENT: 0,
+    EXPRESSION_STATEMENT: 0,
+    EXPRESSION: 0,
+    LET_STATEMENT: 0,
+    LOCATABLE: 0,
+    STRING_LITERAL: 0,
+    NUMBER_LITERAL: 0,
+    KEYWORD: 0,
+    OPERATOR: 0,
+    IDENTIFIER: 0,
+    TYPE_DESCRIPTION: 0,
+
+    nameMap: [],
+    stringify(type) {
+        return this.nameMap[type];
+    }
+};
+initEnum(StsSyntaxNodeType);
+addEnumOption(StsSyntaxNodeType, "PROGRAM");
+addEnumOption(StsSyntaxNodeType, "STATEMENT_LIST");
+addEnumOption(StsSyntaxNodeType, "STATEMENT_BLOCK");
+addEnumOption(StsSyntaxNodeType, "EMPTY_STATEMENT");
+addEnumOption(StsSyntaxNodeType, "EXPRESSION_STATEMENT");
+addEnumOption(StsSyntaxNodeType, "EXPRESSION");
+addEnumOption(StsSyntaxNodeType, "LET_STATEMENT");
+addEnumOption(StsSyntaxNodeType, "LOCATABLE");
+addEnumOption(StsSyntaxNodeType, "STRING_LITERAL");
+addEnumOption(StsSyntaxNodeType, "NUMBER_LITERAL");
+addEnumOption(StsSyntaxNodeType, "KEYWORD");
+addEnumOption(StsSyntaxNodeType, "OPERATOR");
+addEnumOption(StsSyntaxNodeType, "IDENTIFIER");
+addEnumOption(StsSyntaxNodeType, "TYPE_DESCRIPTION");
+StsSyntaxNodeType.nameMap[StsSyntaxNodeType.PROGRAM] = "program";
+StsSyntaxNodeType.nameMap[StsSyntaxNodeType.STATEMENT_LIST] = "statementList";
+StsSyntaxNodeType.nameMap[StsSyntaxNodeType.STATEMENT_BLOCK] = "statementBlock";
+StsSyntaxNodeType.nameMap[StsSyntaxNodeType.EMPTY_STATEMENT] = "emptyStatement";
+StsSyntaxNodeType.nameMap[StsSyntaxNodeType.EXPRESSION_STATEMENT] = "expressionStatement";
+StsSyntaxNodeType.nameMap[StsSyntaxNodeType.EXPRESSION] = "expression";
+StsSyntaxNodeType.nameMap[StsSyntaxNodeType.LET_STATEMENT] = "letStatement";
+StsSyntaxNodeType.nameMap[StsSyntaxNodeType.LOCATABLE] = "locatable";
+StsSyntaxNodeType.nameMap[StsSyntaxNodeType.STRING_LITERAL] = "stringLiteral";
+StsSyntaxNodeType.nameMap[StsSyntaxNodeType.NUMBER_LITERAL] = "numberLiteral";
+StsSyntaxNodeType.nameMap[StsSyntaxNodeType.KEYWORD] = "keyword";
+StsSyntaxNodeType.nameMap[StsSyntaxNodeType.OPERATOR] = "operator";
+StsSyntaxNodeType.nameMap[StsSyntaxNodeType.IDENTIFIER] = "identifier";
+StsSyntaxNodeType.nameMap[StsSyntaxNodeType.TYPE_DESCRIPTION] = "typeDescription";
+
+class StsSyntaxNode {
+    constructor() {
+        this.type = StsSyntaxNodeType.PROGRAM;
+        this.children = [];
+
+        this.stringLiteral = "";
+        this.numberLiteral = 0;
+        this.keyword = "";
+        this.operator = StsOperator.LEFT_FUN_CALL;
+        this.identifierName = "";
+    }
+    static newProgram() {
+        return new this();
+    }
+    static newStatementList() {
+        const result = new this();
+        result.type = StsSyntaxNodeType.STATEMENT_LIST;
+        return result;
+    }
+    static newStatementBlock() {
+        const result = new this();
+        result.type = StsSyntaxNodeType.STATEMENT_BLOCK;
+        return result;
+    }
+    static newEmptyStatement() {
+        const result = new this();
+        result.type = StsSyntaxNodeType.EMPTY_STATEMENT;
+        return result;
+    }
+    static newExpressionStatement() {
+        const result = new this();
+        result.type = StsSyntaxNodeType.EXPRESSION_STATEMENT;
+        return result;
+    }
+    static newExpression() {
+        const result = new this();
+        result.type = StsSyntaxNodeType.EXPRESSION;
+        return result;
+    }
+    static newLetStatement() {
+        const result = new this();
+        result.type = StsSyntaxNodeType.LET_STATEMENT;
+        return result;
+    }
+    static newLocatable() {
+        const result = new this();
+        result.type = StsSyntaxNodeType.LOCATABLE;
+        return result;
+    }
+    static newStringLiteral(str) {
+        const result = new this();
+        result.type = StsSyntaxNodeType.STRING_LITERAL;
+        result.stringLiteral = str;
+        return result;
+    }
+    static newNumberLiteral(num) {
+        const result = new this();
+        result.type = StsSyntaxNodeType.NUMBER_LITERAL;
+        result.numberLiteral = num;
+        return result;
+    }
+    static newKeyword(keyword) {
+        const result = new this();
+        result.type = StsSyntaxNodeType.KEYWORD;
+        result.keyword = keyword;
+        return result;
+    }
+    static newOperator(opr) {
+        const result = new this();
+        result.type = StsSyntaxNodeType.OPERATOR;
+        result.operator = opr;
+        return result;
+    }
+    static newIdentifier(name) {
+        const result = new this();
+        result.type = StsSyntaxNodeType.IDENTIFIER;
+        result.identifierName = name;
+        return result;
+    }
+    static newTypeDescription() {
+        const result = new this();
+        result.type = StsSyntaxNodeType.TYPE_DESCRIPTION;
+        return result;
+    }
+
+    pushChild(child) {
+        this.children.push(child);
+    }
+    getChildren() {
+        const result = [];
+        for (const child of this.children) {
+            result.push(child.getAndChildren());
+        }
+        return result;
+    }
+    getAndChildren() {
+        switch (this.type) {
+            case StsSyntaxNodeType.PROGRAM:
+            case StsSyntaxNodeType.STATEMENT_LIST:
+            case StsSyntaxNodeType.STATEMENT_BLOCK:
+            case StsSyntaxNodeType.EMPTY_STATEMENT:
+            case StsSyntaxNodeType.EXPRESSION_STATEMENT:
+            case StsSyntaxNodeType.EXPRESSION:
+            case StsSyntaxNodeType.LET_STATEMENT:
+            case StsSyntaxNodeType.LOCATABLE:
+            case StsSyntaxNodeType.TYPE_DESCRIPTION:
+                return {
+                    type: StsSyntaxNodeType.stringify(this.type),
+                    children: this.getChildren()
+                };
+            case StsSyntaxNodeType.STRING_LITERAL:
+                return {
+                    type: StsSyntaxNodeType.stringify(this.type),
+                    value: this.stringLiteral
+                };
+            case StsSyntaxNodeType.NUMBER_LITERAL:
+                return {
+                    type: StsSyntaxNodeType.stringify(this.type),
+                    value: this.numberLiteral
+                };
+            case StsSyntaxNodeType.KEYWORD:
+                return {
+                    type: StsSyntaxNodeType.stringify(this.type),
+                    keywordType: StsKeyword.stringify(this.keyword)
+                };
+            case StsSyntaxNodeType.OPERATOR:
+                return {
+                    type: StsSyntaxNodeType.stringify(this.type),
+                    operatorType: this.operator.stringify()
+                };
+            case StsSyntaxNodeType.IDENTIFIER:
+                return {
+                    type: StsSyntaxNodeType.stringify(this.type),
+                    name: this.identifierName
+                };
+        }
+    }
+}
+
 class StsParameter {
     constructor(valueType) {
         this.valueType = valueType;
@@ -966,13 +1259,19 @@ class StsParameter {
 }
 
 class StsOperator {
+    static nameMap = new Map();
+
     constructor(precedence, leftAsso) {
         this.precedence = precedence;
         this.leftAsso = leftAsso;
     }
+    stringify() {
+        return StsOperator.nameMap.get(this);
+    }
 }
 StsOperator.LOWEST = new StsOperator(0, null);
-StsOperator.FUN_CALL = new StsOperator(18, true);
+StsOperator.LEFT_FUN_CALL = new StsOperator(18, true);
+StsOperator.RIGHT_FUN_CALL = new StsOperator(18, true);
 StsOperator.ADD = new StsOperator(12, true);
 StsOperator.SUBTRACT = new StsOperator(12, true);
 StsOperator.MULTIPLY = new StsOperator(13, true);
@@ -982,6 +1281,17 @@ StsOperator.LEFT_INCREASE = new StsOperator(15, false);
 StsOperator.LEFT_DECREASE = new StsOperator(15, false);
 StsOperator.RIGHT_INCREASE = new StsOperator(16, null);
 StsOperator.RIGHT_DECREASE = new StsOperator(16, null);
+StsOperator.nameMap.set(StsOperator.LEFT_FUN_CALL, "(");
+StsOperator.nameMap.set(StsOperator.RIGHT_FUN_CALL, ")");
+StsOperator.nameMap.set(StsOperator.ADD, "+");
+StsOperator.nameMap.set(StsOperator.SUBTRACT, "-");
+StsOperator.nameMap.set(StsOperator.MULTIPLY, "*");
+StsOperator.nameMap.set(StsOperator.DIVIDE, "/");
+StsOperator.nameMap.set(StsOperator.MOD, "%");
+StsOperator.nameMap.set(StsOperator.LEFT_INCREASE, "++");
+StsOperator.nameMap.set(StsOperator.LEFT_DECREASE, "--");
+StsOperator.nameMap.set(StsOperator.RIGHT_INCREASE, "++");
+StsOperator.nameMap.set(StsOperator.RIGHT_DECREASE, "--");
 
 function initEnum(obj) {
     obj.next = 0;
