@@ -10,10 +10,29 @@
 [statement] = [expression] ';'
 [statement] = [let_statement]
 
-[expression] = [expression_atom][function_call_or_null]
+[expression] = '++' [locatable]
+[expression] = '--' [locatable]
+[expression] = [literal][operator_or_null]
+[expression] = [locatable][loperator_or_null][operator_or_null]
 
-[expression_atom] = [string_literal]
-[expression_atom] = [identifier]
+[locatable] = [identifier]
+
+[literal] = [string_literal]
+[literal] = [number_literal]
+[literal] = [true]
+[literal] = [false]
+
+[operator_or_null] = null
+[operator_or_null] = '(' [parameter_list] ')'
+[operator_or_null] = '+' [expression]
+[operator_or_null] = '-' [expression]
+[operator_or_null] = '*' [expression]
+[operator_or_null] = '/' [expression]
+[operator_or_null] = '%' [expression]
+
+[loperator_or_null] = null
+[loperator_or_null] = '++'
+[loperator_or_null] = '--'
 
 [let_statement] = [let][identifier][type_description][initialization] ';'
 
@@ -22,9 +41,6 @@
 
 [initialization] = null
 [initialization] = '=' [expression]
-
-[function_call_or_null] = null
-[function_call_or_null] = '(' [parameter_list] ')'
 
 [parameter_list] = null
 [parameter_list] = [expression][parameter_list_left]
